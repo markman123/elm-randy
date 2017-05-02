@@ -19,12 +19,6 @@ type alias Model =
     }
 
 
-type Color
-    = Red
-    | White
-    | Black
-
-
 init : ( Model, Cmd Msg )
 init =
     ( { width = 600
@@ -113,9 +107,9 @@ view model =
                 , height (toString <| model.height)
                 , Svg.Attributes.style "background-color: black;"
                 ]
-                [ singleCircle Red ( (model.width // 2), model.circleMargin )
-                , singleCircle Red ( model.circleMargin, model.height - model.circleMargin )
-                , singleCircle Red ( model.height - model.circleMargin, model.width - model.circleMargin )
+                [ singleCircle "red" ( (model.width // 2), model.circleMargin )
+                , singleCircle "red" ( model.circleMargin, model.height - model.circleMargin )
+                , singleCircle "red" ( model.height - model.circleMargin, model.width - model.circleMargin )
                 , startPosition model
                 ]
             ]
@@ -129,10 +123,10 @@ startPosition model =
                 _ =
                     Debug.log "coords" ( x, y )
             in
-                singleCircle White ( x, y )
+                singleCircle "white" ( x, y )
 
         Nothing ->
-            singleCircle White ( -50, -50 )
+            singleCircle "white" ( -50, -50 )
 
 
 subscriptions : Model -> Sub Msg
@@ -145,24 +139,12 @@ subscriptions model =
             Sub.none
 
 
-singleCircle : Color -> ( Int, Int ) -> Svg Msg
-singleCircle color ( xCoord, yCoord ) =
-    let
-        colorText =
-            case color of
-                Red ->
-                    "red"
-
-                White ->
-                    "white"
-
-                Black ->
-                    "black"
-    in
-        circle
-            [ cx (toString <| xCoord)
-            , cy (toString <| yCoord)
-            , r "10"
-            , fill colorText
-            ]
-            []
+singleCircle : String -> ( Int, Int ) -> Svg Msg
+singleCircle colorText ( xCoord, yCoord ) =
+    circle
+        [ cx (toString <| xCoord)
+        , cy (toString <| yCoord)
+        , r "10"
+        , fill colorText
+        ]
+        []
