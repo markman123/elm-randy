@@ -7,6 +7,7 @@ import Svg.Attributes exposing (..)
 import Time exposing (Time, second)
 import Random
 import Math.Vector2 exposing (Vec2, getX, getY)
+import AnimationFrame
 
 
 type alias Model =
@@ -15,6 +16,7 @@ type alias Model =
     , circleMargin : Int
     , currentTime : Time
     , running : Bool
+    , stepType : StepType
     , startingPosition : Maybe Vec2
     , currentPosition : Maybe Vec2
     , addCircles : List Vec2
@@ -31,9 +33,16 @@ init =
       , startingPosition = Nothing
       , currentPosition = Nothing
       , addCircles = []
+      , stepType = NotSet
       }
     , Cmd.none
     )
+
+
+type StepType
+    = Timer
+    | Stepper
+    | NotSet
 
 
 type Msg
@@ -42,6 +51,7 @@ type Msg
     | Toggle
     | GenNewPoint Int
     | Step
+    | Clear
 
 
 randomPoint : Model -> Random.Generator ( Float, Float )
@@ -96,7 +106,14 @@ update msg model =
             { model | currentTime = newTime } ! [ rollDice ]
 
         Step ->
-            { model | running = True } ! [ randomPosition model, rollDice ]
+            let
+                newCmd =
+                    if model.stepType == NotSet then
+                        [ randomPosition model ]
+                    else
+                        [ rollDice ]
+            in
+                { model | stepType = Stepper, running = True } ! newCmd
 
         GenPosition ( newX, newY ) ->
             let
@@ -118,11 +135,11 @@ update msg model =
             let
                 newModel =
                     if model.running then
-                        { model | running = False, addCircles = [] }
+                        { model | running = False, stepType = NotSet } ! []
                     else
-                        { model | running = True }
+                        { model | running = True, stepType = Timer, addCircles = [] } ! [ randomPosition model ]
             in
-                newModel ! [ randomPosition model ]
+                newModel
 
         GenNewPoint newPoint ->
             let
@@ -134,6 +151,9 @@ update msg model =
             in
                 newModel ! []
 
+        Clear ->
+            { model | addCircles = [], startingPosition = Nothing } ! []
+
 
 plotNewPoint : Int -> Model -> Model
 plotNewPoint newPoint model =
@@ -142,25 +162,35 @@ plotNewPoint newPoint model =
             getCoords model newPoint
 
         toVec =
-            model.currentPosition |> Maybe.withDefault (Math.Vector2.vec2 0.0 0.0)
+            case model.addCircles of
+                f :: _ ->
+                    f
 
-        diff =
-            Math.Vector2.distance toVec fromVec
+                [] ->
+                    case model.startingPosition of
+                        Just vec ->
+                            vec
+
+                        Nothing ->
+                            Math.Vector2.vec2 0 0
 
         newVec =
-            calcNewPoint toVec diff
+            calcNewPoint fromVec toVec
+
+        _ =
+            Debug.log "fromVec, toVec, newVec" ( fromVec, toVec, newVec )
     in
         { model | addCircles = [ newVec ] ++ model.addCircles }
 
 
-calcNewPoint : Vec2 -> Float -> Vec2
-calcNewPoint from diff =
+calcNewPoint : Vec2 -> Vec2 -> Vec2
+calcNewPoint from to =
     let
         newX =
-            (Math.Vector2.getX from) + (diff / 2)
+            (((Math.Vector2.getX from) + (Math.Vector2.getX to)) / 2)
 
         newY =
-            (Math.Vector2.getY from) + (diff / 2)
+            (((Math.Vector2.getY from) + (Math.Vector2.getY to)) / 2)
 
         newVec =
             Math.Vector2.vec2 newX newY
@@ -182,6 +212,7 @@ view model =
         div []
             [ Html.button [ Html.Events.onClick Toggle ] [ Html.text buttonText ]
             , Html.button [ Html.Events.onClick Step ] [ Html.text "Step" ]
+            , Html.button [ Html.Events.onClick Clear ] [ Html.text "Clear" ]
             , svg
                 [ width (toString <| model.width)
                 , height (toString <| model.height)
@@ -194,6 +225,9 @@ view model =
                  ]
                     ++ additionalCircles model
                 )
+            , div []
+                [ Html.text ((List.length model.addCircles) |> toString)
+                ]
             ]
 
 
@@ -204,7 +238,7 @@ additionalCircles model =
 
 additionalCircle : Vec2 -> Svg Msg
 additionalCircle coord =
-    singleCircle "white"
+    singleCircle2 "white"
         ( (Math.Vector2.getX coord) |> round, (Math.Vector2.getY coord) |> round )
 
 
@@ -227,12 +261,10 @@ startPosition model =
 
 subscriptions : Model -> Sub Msg
 subscriptions model =
-    case model.running of
-        True ->
-            Time.every Time.millisecond Tick
-
-        False ->
-            Sub.none
+    if model.stepType == Timer then
+        AnimationFrame.times Tick
+    else
+        Sub.none
 
 
 singleCircle : String -> ( Int, Int ) -> Svg Msg
@@ -241,6 +273,17 @@ singleCircle colorText ( x, y ) =
         [ cx (toString <| x)
         , cy (toString <| y)
         , r "10"
+        , fill colorText
+        ]
+        []
+
+
+singleCircle2 : String -> ( Int, Int ) -> Svg Msg
+singleCircle2 colorText ( x, y ) =
+    circle
+        [ cx (toString <| x)
+        , cy (toString <| y)
+        , r "1"
         , fill colorText
         ]
         []
