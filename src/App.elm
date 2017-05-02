@@ -1,6 +1,7 @@
 module App exposing (..)
 
 import Html exposing (Html, text, div, img)
+import Html.Attributes
 import Html.Events
 import Svg exposing (..)
 import Svg.Attributes exposing (..)
@@ -134,8 +135,10 @@ update msg model =
         Toggle ->
             let
                 newModel =
-                    if model.running then
+                    if model.running && model.stepType == Timer then
                         { model | running = False, stepType = NotSet } ! []
+                    else if model.running && model.stepType == Stepper then
+                        { model | running = True, stepType = Timer } ! []
                     else
                         { model | running = True, stepType = Timer, addCircles = [] } ! [ randomPosition model ]
             in
@@ -152,7 +155,13 @@ update msg model =
                 newModel ! []
 
         Clear ->
-            { model | addCircles = [], startingPosition = Nothing } ! []
+            { model
+                | addCircles = []
+                , startingPosition = Nothing
+                , running = False
+                , stepType = NotSet
+            }
+                ! []
 
 
 plotNewPoint : Int -> Model -> Model
@@ -176,9 +185,6 @@ plotNewPoint newPoint model =
 
         newVec =
             calcNewPoint fromVec toVec
-
-        _ =
-            Debug.log "fromVec, toVec, newVec" ( fromVec, toVec, newVec )
     in
         { model | addCircles = [ newVec ] ++ model.addCircles }
 
@@ -202,17 +208,30 @@ view : Model -> Html Msg
 view model =
     let
         buttonText =
-            case model.running of
-                True ->
-                    "Stop"
-
-                False ->
+            case model.stepType of
+                NotSet ->
                     "Start"
+
+                Timer ->
+                    "Stop!"
+
+                Stepper ->
+                    "Run!"
     in
         div []
-            [ Html.button [ Html.Events.onClick Toggle ] [ Html.text buttonText ]
-            , Html.button [ Html.Events.onClick Step ] [ Html.text "Step" ]
-            , Html.button [ Html.Events.onClick Clear ] [ Html.text "Clear" ]
+            [ Html.h2 [] [ Html.text "Mathematics is cool!" ]
+            , div []
+                [ Html.text ("n = " ++ ((List.length model.addCircles) |> toString))
+                ]
+            , div []
+                [ Html.button [ Html.Events.onClick Toggle ] [ Html.text buttonText ]
+                , Html.button [ Html.Events.onClick Step ] [ Html.text "Step" ]
+                , Html.button
+                    [ Html.Events.onClick Clear
+                    , Html.Attributes.disabled (model.running && model.stepType == Timer)
+                    ]
+                    [ Html.text "Clear" ]
+                ]
             , svg
                 [ width (toString <| model.width)
                 , height (toString <| model.height)
@@ -225,9 +244,6 @@ view model =
                  ]
                     ++ additionalCircles model
                 )
-            , div []
-                [ Html.text ((List.length model.addCircles) |> toString)
-                ]
             ]
 
 
