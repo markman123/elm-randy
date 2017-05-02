@@ -6,7 +6,7 @@ import Svg exposing (..)
 import Svg.Attributes exposing (..)
 import Time exposing (Time, second)
 import Random
-import Debug
+import Math.Vector2 exposing (Vec2, getX, getY)
 
 
 type alias Model =
@@ -15,7 +15,9 @@ type alias Model =
     , circleMargin : Int
     , currentTime : Time
     , running : Bool
-    , startingPosition : Maybe ( Int, Int )
+    , startingPosition : Maybe Vec2
+    , currentPosition : Maybe Vec2
+    , addCircles : List Vec2
     }
 
 
@@ -27,33 +29,31 @@ init =
       , currentTime = 0
       , running = False
       , startingPosition = Nothing
+      , currentPosition = Nothing
+      , addCircles = []
       }
     , Cmd.none
     )
 
 
 type Msg
-    = NoOp
-    | Tick Time
-    | GenPosition ( Int, Int )
+    = Tick Time
+    | GenPosition ( Float, Float )
     | Toggle
+    | GenNewPoint Int
+    | Step
 
 
-initPosition : ( Int, Int )
-initPosition =
-    ( 0, 0 )
-
-
-randomPoint : Model -> Random.Generator ( Int, Int )
+randomPoint : Model -> Random.Generator ( Float, Float )
 randomPoint model =
     Random.pair
-        (Random.int
-            model.circleMargin
-            (model.width - model.circleMargin)
+        (Random.float
+            (model.circleMargin |> toFloat)
+            ((model.width - model.circleMargin) |> toFloat)
         )
-        (Random.int
-            model.circleMargin
-            (model.height - model.circleMargin)
+        (Random.float
+            (model.circleMargin |> toFloat)
+            ((model.height - model.circleMargin) |> toFloat)
         )
 
 
@@ -63,30 +63,109 @@ randomPosition model =
         (randomPoint model)
 
 
+rollDice : Cmd Msg
+rollDice =
+    Random.generate GenNewPoint (Random.int 1 3)
+
+
+getCoords : Model -> Int -> Vec2
+getCoords model n =
+    case n of
+        1 ->
+            ( (model.width // 2), model.circleMargin ) |> toVec
+
+        2 ->
+            ( model.circleMargin, model.height - model.circleMargin ) |> toVec
+
+        3 ->
+            ( model.height - model.circleMargin, model.width - model.circleMargin ) |> toVec
+
+        _ ->
+            ( 0, 0 ) |> toVec
+
+
+toVec : ( Int, Int ) -> Vec2
+toVec ( x, y ) =
+    Math.Vector2.vec2 (toFloat x) (toFloat y)
+
+
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
         Tick newTime ->
-            ( { model | currentTime = newTime }, Cmd.none )
+            { model | currentTime = newTime } ! [ rollDice ]
 
-        NoOp ->
-            ( model, Cmd.none )
+        Step ->
+            { model | running = True } ! [ randomPosition model, rollDice ]
 
-        GenPosition position ->
+        GenPosition ( newX, newY ) ->
             let
+                newVec =
+                    Math.Vector2.vec2 newX newY
+
                 newPosition =
                     if model.running then
-                        Just position
+                        Just newVec
                     else
                         Nothing
 
                 newModel =
-                    { model | startingPosition = newPosition }
+                    { model | startingPosition = newPosition, currentPosition = newPosition }
             in
                 newModel ! []
 
         Toggle ->
-            { model | running = Basics.not model.running } ! [ randomPosition model ]
+            let
+                newModel =
+                    if model.running then
+                        { model | running = False, addCircles = [] }
+                    else
+                        { model | running = True }
+            in
+                newModel ! [ randomPosition model ]
+
+        GenNewPoint newPoint ->
+            let
+                _ =
+                    Debug.log "rolled" newPoint
+
+                newModel =
+                    plotNewPoint newPoint model
+            in
+                newModel ! []
+
+
+plotNewPoint : Int -> Model -> Model
+plotNewPoint newPoint model =
+    let
+        fromVec =
+            getCoords model newPoint
+
+        toVec =
+            model.currentPosition |> Maybe.withDefault (Math.Vector2.vec2 0.0 0.0)
+
+        diff =
+            Math.Vector2.distance toVec fromVec
+
+        newVec =
+            calcNewPoint toVec diff
+    in
+        { model | addCircles = [ newVec ] ++ model.addCircles }
+
+
+calcNewPoint : Vec2 -> Float -> Vec2
+calcNewPoint from diff =
+    let
+        newX =
+            (Math.Vector2.getX from) + (diff / 2)
+
+        newY =
+            (Math.Vector2.getY from) + (diff / 2)
+
+        newVec =
+            Math.Vector2.vec2 newX newY
+    in
+        newVec
 
 
 view : Model -> Html Msg
@@ -102,28 +181,45 @@ view model =
     in
         div []
             [ Html.button [ Html.Events.onClick Toggle ] [ Html.text buttonText ]
+            , Html.button [ Html.Events.onClick Step ] [ Html.text "Step" ]
             , svg
                 [ width (toString <| model.width)
                 , height (toString <| model.height)
                 , Svg.Attributes.style "background-color: black;"
                 ]
-                [ singleCircle "red" ( (model.width // 2), model.circleMargin )
-                , singleCircle "red" ( model.circleMargin, model.height - model.circleMargin )
-                , singleCircle "red" ( model.height - model.circleMargin, model.width - model.circleMargin )
-                , startPosition model
-                ]
+                ([ singleCircle "red" ( (model.width // 2), model.circleMargin )
+                 , singleCircle "red" ( model.circleMargin, model.height - model.circleMargin )
+                 , singleCircle "red" ( model.height - model.circleMargin, model.width - model.circleMargin )
+                 , startPosition model
+                 ]
+                    ++ additionalCircles model
+                )
             ]
+
+
+additionalCircles : Model -> List (Svg Msg)
+additionalCircles model =
+    List.map additionalCircle model.addCircles
+
+
+additionalCircle : Vec2 -> Svg Msg
+additionalCircle coord =
+    singleCircle "white"
+        ( (Math.Vector2.getX coord) |> round, (Math.Vector2.getY coord) |> round )
 
 
 startPosition : Model -> Svg Msg
 startPosition model =
     case model.startingPosition of
-        Just ( x, y ) ->
+        Just coord ->
             let
-                _ =
-                    Debug.log "coords" ( x, y )
+                x =
+                    round <| (getX coord)
+
+                y =
+                    round <| (getY coord)
             in
-                singleCircle "white" ( x, y )
+                singleCircle "yellow" ( x, y )
 
         Nothing ->
             singleCircle "white" ( -50, -50 )
@@ -140,10 +236,10 @@ subscriptions model =
 
 
 singleCircle : String -> ( Int, Int ) -> Svg Msg
-singleCircle colorText ( xCoord, yCoord ) =
+singleCircle colorText ( x, y ) =
     circle
-        [ cx (toString <| xCoord)
-        , cy (toString <| yCoord)
+        [ cx (toString <| x)
+        , cy (toString <| y)
         , r "10"
         , fill colorText
         ]
